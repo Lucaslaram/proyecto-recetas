@@ -1,8 +1,8 @@
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 from app.models import Base, engine
+from app.routers import ingredients_router
 
-# Crear de forma automática todas las tablas registradas en el __init__
+# Crear las tablas automáticamente al iniciar la app
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -10,6 +10,9 @@ app = FastAPI(
     description="API para generar recetas con IA a partir de tu inventario",
     version="1.0.0"
 )
+
+# Incluir los endpoints del CRUD de ingredientes
+app.include_router(ingredients_router)
 
 @app.get("/health")
 def health_check():
