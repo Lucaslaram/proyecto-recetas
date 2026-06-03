@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from app.models import Base, engine
-from app.routers import ingredients_router
+from app.routers import ingredients_router, recipes_router
 
 # Crear las tablas automáticamente al iniciar la app
 Base.metadata.create_all(bind=engine)
@@ -11,8 +11,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Incluir los endpoints del CRUD de ingredientes
+# Incluir los endpoints del sistema
 app.include_router(ingredients_router)
+app.include_router(recipes_router)
 
 @app.get("/health")
 def health_check():
