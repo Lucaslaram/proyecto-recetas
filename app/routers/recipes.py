@@ -2,7 +2,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.models import get_db, Recipe, User
-from app.schemas import RecipeResponse
+from app.schemas import RecipeResponse, RecipeRate
 from app.routers.auth_deps import get_current_user
 
 router = APIRouter(
@@ -70,3 +70,30 @@ def delete_recipe(
     db.delete(db_recipe)
     db.commit()
     return None
+
+
+@router.post("/{id}/rate", response_model=RecipeResponse)
+def rate_recipe(
+    id: int,
+    rate_in: RecipeRate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Califica una receta existente de 1 a 5 estrellas. 
+    Valida la existencia y la pertenencia al usuario actual.
+    """
+    db_recipe = db.query(Recipe).filter(Recipe.id == id, Recipe.user_id == current_user.id).first()
+    
+    if not db_recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La receta no existe en tu historial."
+        )
+    
+    # Asignar la nueva calificación (Pydantic ya validó que esté entre 1 y 5)
+    db_recipe.rating = rate_in.rating
+    
+    db.commit()
+    db.refresh(db_recipe)
+    return format_recipe_response(db_recipe)
