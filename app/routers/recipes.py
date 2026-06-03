@@ -1,9 +1,10 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.models import get_db, Recipe, User
+from app.models import get_db, Recipe, Ingredient, User
 from app.schemas import RecipeResponse, RecipeRate
 from app.routers.auth_deps import get_current_user
+from app.services import llm_service
 
 router = APIRouter(
     prefix="/recipes",
@@ -91,9 +92,55 @@ def rate_recipe(
             detail="La receta no existe en tu historial."
         )
     
-    # Asignar la nueva calificación (Pydantic ya validó que esté entre 1 y 5)
     db_recipe.rating = rate_in.rating
     
     db.commit()
     db.refresh(db_recipe)
+    return format_recipe_response(db_recipe)
+
+
+@router.post("/generate", response_model=RecipeResponse, status_code=status.HTTP_201_CREATED)
+async def generate_recipe_from_inventory(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Flujo Integración con IA:
+    1. Lee los ingredientes del inventario personal del usuario.
+    2. Envía la solicitud de generación de prompt estricto a OpenRouter.
+    3. Parsea el JSON retornado con las llaves requeridas por el profesor.
+    4. Almacena la receta en la base de datos y la retorna.
+    """
+    # 1. Leer ingredientes del usuario desde la base de datos
+    db_ingredients = db.query(Ingredient).filter(Ingredient.user_id == current_user.id).all()
+    
+    if not db_ingredients:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tu inventario está vacío. Agrega ingredientes mediante POST /ingredients antes de generar una receta."
+        )
+        
+    # Formatear la lista de ingredientes (Nombre + Cantidad) para dárselos a la IA
+    lista_ingredientes = [f"{ing.nombre} ({ing.cantidad})" for ing in db_ingredients]
+    
+    # 2 y 3. Invocar el servicio de IA (Construye el prompt, llama a OpenRouter y parsea el JSON resultante)
+    recipe_data = await llm_service.generar_receta(ingredientes_usuario=lista_ingredientes)
+    
+    # 4. Guardar la receta estructurada en la Base de Datos
+    # Serializamos las listas de ingredientes y pasos a JSON string de forma segura para guardarlas en Text
+    db_recipe = Recipe(
+        nombre_plato=recipe_data["nombre_plato"],
+        ingredientes=json.dumps(recipe_data["ingredients"], ensure_ascii=False),
+        pasos=json.dumps(recipe_data["pasos"], ensure_ascii=False),
+        tiempo_estimado=recipe_data["tiempo_estimado"],
+        nivel_dificultad=recipe_data["nivel_dificultad"],
+        user_id=current_user.id,
+        rating=None  # Nace sin calificación
+    )
+    
+    db.add(db_recipe)
+    db.commit()
+    db.refresh(db_recipe)
+    
+    # Retornar con el mapeo correcto a listas nativas usando la función utilitaria
     return format_recipe_response(db_recipe)
